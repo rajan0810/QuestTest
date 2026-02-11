@@ -1,0 +1,10 @@
+# ninja log v5
+1	827	1770793806194201264	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	c214cd592f6abc9b
+3	942	1770793806311513386	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	c4135c4587812544
+0	952	1770793806320568543	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	7d355e4b8845b993
+4	982	1770793806350813608	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	b260c443eff69edc
+1	1034	1770793806401309786	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	7b4f61ffda67b2ea
+4	1056	1770793806424068700	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	a7b4f5b1a884c07c
+1	1231	1770793806599931903	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	ca373e278df865ec
+0	1324	1770793806692541188	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	8cfca344764da492
+1324	1442	1770793806808090845	/Users/rajanhasija/Developer/GitHub_Work/Projects/Hacks/JustiX/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/1y2z2b3h/obj/arm64-v8a/libgame.so	dccbb9c74aed550
