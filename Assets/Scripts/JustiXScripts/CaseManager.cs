@@ -9,15 +9,23 @@ public class CaseManager : MonoBehaviour
 {
     [Header("UI References")]
     public GameObject hashcodePanel;
-    public TMP_InputField codeInputField; // Optional if using VR Keypad only
-    public Button joinButton;             // Optional if using VR Keypad only
-    public Image clipboardDisplay;        // The Image component on the VR Clipboard
+    public TMP_InputField codeInputField;
+    public Button joinButton;
+    public Image clipboardDisplay;
     public Button nextButton;
     public Button prevButton;
     public GameObject loadingSpinner;
 
+    [Header("End Session UI")]
+    public Button endButton;
+    public GameObject endButtonObject;
+
+    [Header("Judge Audio")]
+    public AudioSource judgeAudioSource;
+    public AudioClip sessionEndClip;
+
     [Header("Backend Config")]
-    public string baseUrl = "http://YOUR_IP:5050"; // Make public to edit in Inspector easily
+    public string baseUrl = "http://YOUR_IP:5050";
 
     // State Data
     public static string CurrentMeetingId { get; private set; }
@@ -26,53 +34,36 @@ public class CaseManager : MonoBehaviour
 
     void Start()
     {
-        // Safety checks to prevent crashes if things aren't assigned
         if (joinButton != null) joinButton.onClick.AddListener(OnJoinClicked);
         if (nextButton != null) nextButton.onClick.AddListener(NextPage);
         if (prevButton != null) prevButton.onClick.AddListener(PrevPage);
+        if (endButton != null) endButton.onClick.AddListener(OnEndSessionClicked);
 
+        if (endButtonObject != null) endButtonObject.SetActive(false);
         UpdateEvidenceUI();
     }
 
-    // --- Entry Point 1: Standard UI Button ---
     private async void OnJoinClicked()
     {
         if (codeInputField == null) return;
-        string code = codeInputField.text;
-        await HandleJoinLogic(code);
+        await HandleJoinLogic(codeInputField.text);
     }
 
-    // --- Entry Point 2: VR Keypad (Call this from HashcodeManager) ---
-    public void JoinMeetingFromKeypad(string code)
-    {
-        // "Fire and forget" async call compatible with Unity Events
-        _ = HandleJoinLogic(code);
-    }
+    public void JoinMeetingFromKeypad(string code) => _ = HandleJoinLogic(code);
 
-    // Shared Logic
     private async Task HandleJoinLogic(string code)
     {
-        if (string.IsNullOrEmpty(code))
-        {
-            Debug.LogWarning("Meeting code is empty!");
-            return;
-        }
-
+        if (string.IsNullOrEmpty(code)) return;
         if (loadingSpinner != null) loadingSpinner.SetActive(true);
-
         await JoinSession(code);
-
         if (loadingSpinner != null) loadingSpinner.SetActive(false);
     }
 
     private async Task JoinSession(string code)
     {
         string url = $"{baseUrl}/api/cases/meeting/vr/join";
-
         JoinRequest req = new JoinRequest { meetingCode = code };
         string json = JsonUtility.ToJson(req);
-
-        Debug.Log($"Attempting to join with code: {code} at {url}");
 
         using (UnityWebRequest webRequest = new UnityWebRequest(url, "POST"))
         {
@@ -82,113 +73,96 @@ public class CaseManager : MonoBehaviour
             webRequest.SetRequestHeader("Content-Type", "application/json");
 
             var operation = webRequest.SendWebRequest();
-
             while (!operation.isDone) await Task.Yield();
 
             if (webRequest.result == UnityWebRequest.Result.Success)
             {
-                Debug.Log("Join Success: " + webRequest.downloadHandler.text);
                 JoinResponse response = JsonUtility.FromJson<JoinResponse>(webRequest.downloadHandler.text);
-
-                if (hashcodePanel != null)
-                {
-                    hashcodePanel.SetActive(false); // Hides the keypad
-                }
-
-                // 1. Store Meeting ID
                 CurrentMeetingId = response.meetingId;
 
-                // 2. Start Downloading Evidence
-                if (response.evidencePages != null && response.evidencePages.Length > 0)
-                {
-                    await DownloadEvidenceImages(response.evidencePages);
-                }
-                else
-                {
-                    Debug.Log("No evidence pages found for this case.");
-                }
+                if (hashcodePanel != null) hashcodePanel.SetActive(false);
+                if (endButtonObject != null) endButtonObject.SetActive(true);
 
-                // 3. Trigger Socket Connection
-                // Checks if SocketManager exists before calling to prevent errors
+                if (response.evidencePages != null && response.evidencePages.Length > 0)
+                    await DownloadEvidenceImages(response.evidencePages);
+
                 if (SocketManager.Instance != null)
-                {
-                    Debug.Log($"Connecting to Socket with Room ID: {CurrentMeetingId}");
                     SocketManager.Instance.ConnectToSocket(CurrentMeetingId);
-                }
-                else
-                {
-                    Debug.LogError("SocketManager Instance not found! Is the script attached to a GameObject?");
-                }
-            }
-            else
-            {
-                Debug.LogError($"Join Failed: {webRequest.error} | Response: {webRequest.downloadHandler.text}");
             }
         }
     }
 
+    // --- Optimized End Session Logic ---
+    private void OnEndSessionClicked()
+    {
+        // 1. Play Judge's Audio immediately
+        if (judgeAudioSource != null && sessionEndClip != null)
+        {
+            judgeAudioSource.clip = sessionEndClip;
+            judgeAudioSource.Play();
+        }
+
+        // 2. Visual Feedback
+        if (endButton != null) endButton.interactable = false;
+
+        // 3. Fire and Forget the request
+        StartCoroutine(SendEndRequest());
+    }
+
+    private System.Collections.IEnumerator SendEndRequest()
+    {
+        string url = $"{baseUrl}/api/cases/meeting/end";
+        EndSessionRequest req = new EndSessionRequest { meetingId = CurrentMeetingId };
+        string json = JsonUtility.ToJson(req);
+
+        using (UnityWebRequest webRequest = new UnityWebRequest(url, "POST"))
+        {
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
+            webRequest.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            webRequest.downloadHandler = new DownloadHandlerBuffer();
+            webRequest.SetRequestHeader("Content-Type", "application/json");
+
+            yield return webRequest.SendWebRequest();
+
+            if (webRequest.result == UnityWebRequest.Result.Success)
+            {
+                Debug.Log("End Session Request Sent Successfully.");
+            }
+            else
+            {
+                Debug.LogError("Failed to send End Session request: " + webRequest.error);
+                if (endButton != null) endButton.interactable = true;
+            }
+        }
+    }
+
+    // --- Evidence Navigation ---
     private async Task DownloadEvidenceImages(string[] urls)
     {
         evidenceTextures.Clear();
-
         foreach (string url in urls)
         {
             using (UnityWebRequest request = UnityWebRequestTexture.GetTexture(url))
             {
                 var op = request.SendWebRequest();
                 while (!op.isDone) await Task.Yield();
-
                 if (request.result == UnityWebRequest.Result.Success)
-                {
-                    Texture2D tex = DownloadHandlerTexture.GetContent(request);
-                    evidenceTextures.Add(tex);
-                }
-                else
-                {
-                    Debug.LogError($"Failed to download image: {url}");
-                }
+                    evidenceTextures.Add(DownloadHandlerTexture.GetContent(request));
             }
         }
-
-        // Reset to page 1
         currentPageIndex = 0;
         UpdateEvidenceUI();
     }
 
-    // --- Clipboard Navigation ---
-
     private void UpdateEvidenceUI()
     {
         if (clipboardDisplay == null) return;
-
-        if (evidenceTextures.Count == 0)
-        {
-            clipboardDisplay.sprite = null;
-            clipboardDisplay.color = Color.gray; // Visual cue that it's empty
-            return;
-        }
-
-        clipboardDisplay.color = Color.white;
-
-        // Convert Texture2D to Sprite
+        if (evidenceTextures.Count == 0) { clipboardDisplay.sprite = null; return; }
         Texture2D tex = evidenceTextures[currentPageIndex];
-        // Create a new sprite (Pivot in center)
         Sprite sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
         clipboardDisplay.sprite = sprite;
     }
 
-    public void NextPage()
-    {
-        if (evidenceTextures.Count == 0) return;
-        currentPageIndex = (currentPageIndex + 1) % evidenceTextures.Count;
-        UpdateEvidenceUI();
-    }
-
-    public void PrevPage()
-    {
-        if (evidenceTextures.Count == 0) return;
-        currentPageIndex--;
-        if (currentPageIndex < 0) currentPageIndex = evidenceTextures.Count - 1;
-        UpdateEvidenceUI();
-    }
+    public void NextPage() { if (evidenceTextures.Count > 0) { currentPageIndex = (currentPageIndex + 1) % evidenceTextures.Count; UpdateEvidenceUI(); } }
+    public void PrevPage() { if (evidenceTextures.Count > 0) { currentPageIndex = (currentPageIndex - 1 + evidenceTextures.Count) % evidenceTextures.Count; UpdateEvidenceUI(); } }
 }

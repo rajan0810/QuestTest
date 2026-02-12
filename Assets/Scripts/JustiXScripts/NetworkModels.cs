@@ -21,7 +21,7 @@ public class JoinResponse
 [Serializable]
 public class EndSessionRequest
 {
-    public string meetingCode;
+    public string meetingId;
 }
 
 [Serializable]
